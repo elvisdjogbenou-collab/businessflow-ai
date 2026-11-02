@@ -6,7 +6,7 @@ The working shell can execute package installation and command-based verificatio
 
 ## Implementation status
 - Verified locally as files by direct inspection: initial Next.js structure, authentication routes, dashboard shell, and SQL migration.
-- Verified: dependency installation with pnpm, strict TypeScript, four unit tests, and the Next.js production build.
+- Verified: dependency installation with pnpm, strict TypeScript, local unit/API guard tests, and the Next.js production build.
 - Not verified at runtime: authentication against a real Supabase project, database migration, RLS isolation tests, and browser rendering.
 - Previous startup attempts could appear slow because first-route compilation was allowed too little time; local HTTP smoke tests are now documented separately.
 - Server diagnosis: Node 24, pnpm 11 and Next 15.5.28 are available. Port 3000 and 3100 were initially free. Direct Next development startup on 127.0.0.1:3100 was slow, first compiled on demand, and then served `/`, `/login`, and `/signup`; the temporary server has been stopped.
@@ -18,3 +18,4 @@ The working shell can execute package installation and command-based verificatio
 - Orders, line items, recorded manual payments, follow-up tasks, live dashboard aggregates, and CSV export now have application routes/shells, but Supabase remains unconfigured and database behavior is not runtime-verified.
 - Payment overbalance enforcement is implemented locally and in a prepared PostgreSQL trigger; neither has been integration-tested.
 - Cross-organization integration tests are not implemented yet.
+- Docker CLI is available, but no Docker engine daemon and no local Supabase Docker environment are running, so migrations and cross-tenant RLS tests remain unverified at runtime.

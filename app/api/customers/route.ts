@@ -1,25 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase";
 import { customerSchema } from "@/lib/domain-validation";
-
-async function getAuthenticatedContext() {
-  const supabase = await createSupabaseServerClient();
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
-  if (userError || !user) return null;
-
-  const { data: membership, error } = await supabase
-    .from("organization_members")
-    .select("organization_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
-  if (error || !membership) return null;
-  return { supabase, organizationId: membership.organization_id };
-}
+import { getOrganizationContext } from "@/lib/organization-context";
 
 export async function POST(request: NextRequest) {
   try {
-    const context = await getAuthenticatedContext();
+    const context = await getOrganizationContext();
     if (!context) return NextResponse.redirect(new URL("/login?notice=signin-required", request.url));
 
     const form = await request.formData();

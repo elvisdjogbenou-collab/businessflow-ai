@@ -27,7 +27,7 @@ No paid service, production configuration, DNS/domain change, real payment, real
 
 ## Verification status
 - TypeScript typecheck passes.
-- Vitest domain tests pass locally.
+- Vitest domain and unauthenticated API guard tests pass locally.
 - The Next.js production build passes.
 - ESLint passes with the Next 15 legacy configuration.
 - HTTP 200 smoke tests pass locally for `/`, `/login`, and `/signup`; no Supabase service is required for those pages.
