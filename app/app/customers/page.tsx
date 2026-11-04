@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase";
+import { getOrganizationContext } from "@/lib/organization-context";
 import { escapeLikePattern } from "@/lib/postgrest";
 
 type SearchParams = {
@@ -16,23 +16,14 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   let errorMessage: string | null = null;
 
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) redirect("/login?notice=signin-required");
-
-    const { data: membership } = await supabase
-      .from("organization_members")
-      .select("organization_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .single();
-    if (!membership) {
+    const context = await getOrganizationContext();
+    if (!context) {
       errorMessage = "Aucune organisation n'est associée à votre compte.";
     } else {
-      let query = supabase
+      let query = context.supabase
         .from("customers")
         .select("id, kind, name, phone, email")
-        .eq("organization_id", membership.organization_id)
+        .eq("organization_id", context.organizationId)
         .order("name");
       if (params.kind === "lead" || params.kind === "customer") {
         query = query.eq("kind", params.kind);

@@ -9,6 +9,52 @@ export async function POST(request: NextRequest) {
     if (!context) return NextResponse.redirect(new URL("/login?notice=signin-required", request.url));
 
     const form = await request.formData();
+    const action = String(form.get("_action") ?? "create");
+    if (action === "update_status") {
+      const orderId = String(form.get("orderId") ?? "");
+      const status = String(form.get("status") ?? "");
+      if (!orderId || !["draft", "confirmed", "delivered", "paid", "cancelled"].includes(status)) {
+        return NextResponse.redirect(new URL("/app/orders?error=invalid", request.url));
+      }
+      const { data: order, error: orderError } = await context.supabase
+        .from("orders")
+        .select("id,total_minor,status")
+        .eq("id", orderId)
+        .eq("organization_id", context.organizationId)
+        .single();
+      if (orderError || !order) return NextResponse.redirect(new URL("/app/orders?error=invalid", request.url));
+      if (status === "paid") {
+        const { data: paymentRows } = await context.supabase
+          .from("payments")
+          .select("amount_minor")
+          .eq("order_id", orderId)
+          .eq("organization_id", context.organizationId)
+          .eq("status", "recorded");
+        const paidMinor = (paymentRows ?? []).reduce((sum, payment) => sum + payment.amount_minor, 0);
+        if (paidMinor !== order.total_minor) {
+          return NextResponse.redirect(new URL("/app/orders?error=invalid", request.url));
+        }
+      }
+      if (status === "cancelled") {
+        const { data: paymentRows } = await context.supabase
+          .from("payments")
+          .select("id")
+          .eq("order_id", orderId)
+          .eq("organization_id", context.organizationId)
+          .eq("status", "recorded")
+          .limit(1);
+        if ((paymentRows?.length ?? 0) > 0) {
+          return NextResponse.redirect(new URL("/app/orders?error=invalid", request.url));
+        }
+      }
+      const result = await context.supabase
+        .from("orders")
+        .update({ status })
+        .eq("id", orderId)
+        .eq("organization_id", context.organizationId);
+      if (result.error) return NextResponse.redirect(new URL("/app/orders?error=save", request.url));
+      return NextResponse.redirect(new URL("/app/orders?notice=status-updated", request.url));
+    }
     const items = Array.from({ length: 10 }, (_, index) => {
       const description = form.get(`description_${index}`);
       const quantity = form.get(`quantity_${index}`);
@@ -40,6 +86,16 @@ export async function POST(request: NextRequest) {
     const totalMinor = orderTotalMinor(
       parsed.data.items.map((item) => item.quantity * item.unitPriceMinor),
     );
+    const idempotencyKey = String(form.get("idempotencyKey") ?? "").slice(0, 100);
+    if (!idempotencyKey) return NextResponse.redirect(new URL("/app/orders?error=invalid", request.url));
+    const existing = await context.supabase
+      .from("orders")
+      .select("id")
+      .eq("organization_id", context.organizationId)
+      .eq("idempotency_key", idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (existing.data) return NextResponse.redirect(new URL("/app/orders?notice=created", request.url));
     const order = await context.supabase
       .from("orders")
       .insert({
@@ -48,6 +104,7 @@ export async function POST(request: NextRequest) {
         created_by: context.user.id,
         status: "confirmed",
         total_minor: totalMinor,
+        idempotency_key: idempotencyKey,
       })
       .select("id")
       .single();

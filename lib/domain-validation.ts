@@ -24,3 +24,12 @@ export const orderSchema = z.object({
   customerId: z.string().uuid(),
   items: z.array(orderItemSchema).min(1).max(100),
 });
+
+export const organizationSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+});
+
+export const organizationInvitationSchema = z.object({
+  email: z.string().trim().email().max(254),
+  role: z.enum(["manager", "member"]),
+});

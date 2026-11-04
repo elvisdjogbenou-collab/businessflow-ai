@@ -9,7 +9,14 @@ export async function POST(request: NextRequest) {
     if (!context) return NextResponse.redirect(new URL("/login?notice=signin-required", request.url));
     const form = await request.formData();
     const paidAtInput = String(form.get("paidAt") ?? "");
-    const paidAt = paidAtInput ? new Date(paidAtInput).toISOString() : "";
+    let paidAt = "";
+    if (paidAtInput) {
+      const parsedDate = new Date(paidAtInput);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return NextResponse.redirect(new URL("/app/orders?error=invalid", request.url));
+      }
+      paidAt = parsedDate.toISOString();
+    }
     const parsed = paymentSchema.safeParse({
       amountMinor: Number(form.get("amountMinor")),
       paidAt,
@@ -17,7 +24,8 @@ export async function POST(request: NextRequest) {
       reference: form.get("reference") || undefined,
     });
     const orderId = String(form.get("orderId") ?? "");
-    if (!parsed.success || !orderId) {
+    const idempotencyKey = String(form.get("idempotencyKey") ?? "").slice(0, 100);
+    if (!parsed.success || !orderId || !idempotencyKey) {
       return NextResponse.redirect(new URL("/app/orders?error=invalid", request.url));
     }
 
@@ -44,6 +52,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.redirect(new URL("/app/orders?error=invalid", request.url));
     }
 
+    const existing = await context.supabase
+      .from("payments")
+      .select("id")
+      .eq("organization_id", context.organizationId)
+      .eq("idempotency_key", idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (existing.data) return NextResponse.redirect(new URL("/app/orders?notice=payment-recorded", request.url));
+
     const { error: insertError } = await context.supabase.from("payments").insert({
       organization_id: context.organizationId,
       order_id: orderId,
@@ -53,6 +70,7 @@ export async function POST(request: NextRequest) {
       reference: parsed.data.reference || null,
       status: "recorded",
       recorded_by: context.user.id,
+      idempotency_key: idempotencyKey,
     });
     if (insertError) return NextResponse.redirect(new URL("/app/orders?error=save", request.url));
     return NextResponse.redirect(new URL("/app/orders?notice=payment-recorded", request.url));

@@ -13,7 +13,7 @@ The working shell can execute package installation and command-based verificatio
 - Verified after the dependency repair: `pnpm lint` exits successfully, `pnpm typecheck` exits successfully, 7 unit tests pass, and `pnpm build` completes with exit code 0.
 - The development dependency `es-abstract@1.24.2` is declared explicitly because legacy ESLint React dependencies resolve ECMA-2024/2025 helpers through this package. This version was already present in the lockfile's transitive resolution; no override was added.
 - The development server was verified on port 3100 with HTTP 200 responses for `/`, `/login`, and `/signup`. The temporary server was stopped and no listener remained on port 3100.
-- Organization creation and invitation flows are not implemented.
+- Organization creation, organization switching, invitations, and secure invitation acceptance are implemented; Supabase migration and runtime authorization still require verification.
 - Local organization bootstrap is prepared in migration `202611020002_mvp_hardening.sql`; it has not been applied or runtime-tested.
 - Orders, line items, recorded manual payments, follow-up tasks, live dashboard aggregates, and CSV export now have application routes/shells, but Supabase remains unconfigured and database behavior is not runtime-verified.
 - Payment overbalance enforcement is implemented locally and in a prepared PostgreSQL trigger; neither has been integration-tested.

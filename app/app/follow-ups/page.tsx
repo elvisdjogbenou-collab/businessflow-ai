@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase";
+import { getOrganizationContext } from "@/lib/organization-context";
 
 type SearchParams = { notice?: string; error?: string };
 
@@ -10,14 +10,12 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
   let customers: Array<{ id: string; name: string }> = [];
   let errorMessage: string | null = null;
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) redirect("/login?notice=signin-required");
-    const { data: membership } = await supabase.from("organization_members").select("organization_id").eq("user_id", user.id).limit(1).single();
-    if (membership) {
-      const tasksResult = await supabase.from("follow_up_tasks").select("id,title,due_at,status,notes").eq("organization_id", membership.organization_id).order("due_at");
+    const context = await getOrganizationContext();
+    if (!context) redirect("/login?notice=signin-required");
+    if (context) {
+      const tasksResult = await context.supabase.from("follow_up_tasks").select("id,title,due_at,status,notes").eq("organization_id", context.organizationId).order("due_at");
       tasks = tasksResult.data ?? [];
-      const customersResult = await supabase.from("customers").select("id,name").eq("organization_id", membership.organization_id).order("name");
+      const customersResult = await context.supabase.from("customers").select("id,name").eq("organization_id", context.organizationId).order("name");
       customers = customersResult.data ?? [];
       if (tasksResult.error) errorMessage = "Impossible de charger les relances.";
     }

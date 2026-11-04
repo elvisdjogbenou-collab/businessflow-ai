@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase";
+import { getOrganizationContext } from "@/lib/organization-context";
+import { randomUUID } from "crypto";
 
 type SearchParams = { notice?: string; error?: string };
 
@@ -13,25 +14,30 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   let customers: Array<{ id: string; name: string }> = [];
   let orders: Array<{ id: string; status: string; total_minor: number; created_at: string; customers: { name: string } | Array<{ name: string }> | null }> = [];
   let payments: Record<string, number> = {};
+  let paymentHistory: Array<{ order_id: string; amount_minor: number; paid_at: string; method: string; reference: string | null }> = [];
   let errorMessage: string | null = null;
 
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) redirect("/login?notice=signin-required");
-    const { data: membership } = await supabase.from("organization_members").select("organization_id").eq("user_id", user.id).limit(1).single();
-    if (!membership) errorMessage = "Aucune organisation n'est associée à votre compte.";
+    const context = await getOrganizationContext();
+    if (!context) redirect("/login?notice=signin-required");
     else {
-      const customerResult = await supabase.from("customers").select("id,name").eq("organization_id", membership.organization_id).order("name");
+      const customerResult = await context.supabase.from("customers").select("id,name").eq("organization_id", context.organizationId).order("name");
       customers = customerResult.data ?? [];
-      const orderResult = await supabase.from("orders").select("id,status,total_minor,created_at,customers(name)").eq("organization_id", membership.organization_id).order("created_at", { ascending: false }).limit(100);
+      const orderResult = await context.supabase.from("orders").select("id,status,total_minor,created_at,customers(name)").eq("organization_id", context.organizationId).order("created_at", { ascending: false }).limit(100);
       orders = (orderResult.data ?? []) as typeof orders;
       if (orderResult.error) errorMessage = "Impossible de charger les commandes.";
-      const paymentResult = await supabase.from("payments").select("order_id,amount_minor,status").eq("organization_id", membership.organization_id).eq("status", "recorded");
+      const paymentResult = await context.supabase.from("payments").select("order_id,amount_minor,status,paid_at,method,reference").eq("organization_id", context.organizationId).eq("status", "recorded").order("paid_at", { ascending: false });
       payments = (paymentResult.data ?? []).reduce<Record<string, number>>((sum, payment) => {
         sum[payment.order_id] = (sum[payment.order_id] ?? 0) + payment.amount_minor;
         return sum;
       }, {});
+      paymentHistory = (paymentResult.data ?? []).map((payment) => ({
+        order_id: payment.order_id,
+        amount_minor: payment.amount_minor,
+        paid_at: payment.paid_at,
+        method: payment.method,
+        reference: payment.reference,
+      }));
     }
   } catch {
     errorMessage = "Supabase n'est pas configuré.";
@@ -49,12 +55,14 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         {params.error === "configuration" && "Configuration externe manquante."}
         {params.notice === "created" && "Commande créée."}
         {params.notice === "payment-recorded" && "Paiement manuel enregistré."}
+        {params.notice === "status-updated" && "Statut de la commande modifié."}
         {errorMessage}
       </p>}
 
       <section className="customer-layout">
         <form className="auth-card" action="/api/orders" method="post">
           <h2>Nouvelle commande</h2>
+          <input type="hidden" name="idempotencyKey" value={randomUUID()} />
           <label>Client<select name="customerId" required defaultValue=""><option value="" disabled>Sélectionner</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
           {[0, 1, 2].map((index) => (
             <fieldset key={index}>
@@ -75,14 +83,34 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               <article key={order.id}>
                 <strong>{customerName(order.customers)}</strong>
                 <span>{order.status} · {new Date(order.created_at).toLocaleDateString("fr-FR")} · Total {order.total_minor} XOF · Payé {paid} XOF · Solde {balance} XOF</span>
+                {order.status !== "cancelled" && (
+                  <form action="/api/orders" method="post">
+                    <input type="hidden" name="_action" value="update_status" />
+                    <input type="hidden" name="orderId" value={order.id} />
+                    <select name="status" defaultValue={order.status}>
+                      <option value="draft">Brouillon</option>
+                      <option value="confirmed">Confirmée</option>
+                      <option value="delivered">Livrée</option>
+                      <option value="paid">Payée</option>
+                      <option value="cancelled">Annulée</option>
+                    </select>
+                    <button className="button secondary" type="submit">Modifier le statut</button>
+                  </form>
+                )}
                 {balance > 0 && <form action="/api/payments" method="post">
                   <input type="hidden" name="orderId" value={order.id} />
+                  <input type="hidden" name="idempotencyKey" value={randomUUID()} />
                   <input name="amountMinor" type="number" min="1" max={balance} required aria-label="Montant XOF" />
                   <input name="paidAt" type="datetime-local" required />
                   <select name="method" required><option value="cash">Espèces</option><option value="mobile_money">Mobile money</option><option value="bank_transfer">Virement</option><option value="check">Chèque</option><option value="other">Autre</option></select>
                   <input name="reference" maxLength={100} placeholder="Référence" />
                   <button className="button secondary" type="submit">Enregistrer un paiement manuel</button>
                 </form>}
+                {paymentHistory.filter((payment) => payment.order_id === order.id).map((payment, index) => (
+                  <small key={`${payment.order_id}-${payment.paid_at}-${index}`}>
+                    Paiement {payment.amount_minor} XOF · {payment.method} · {new Date(payment.paid_at).toLocaleString("fr-FR")}{payment.reference ? ` · ${payment.reference}` : ""}
+                  </small>
+                ))}
               </article>
             );
           })}
